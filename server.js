@@ -6,7 +6,11 @@ const { Client: SquareClient, Environment } = require('square');
 const fetch = require('node-fetch');
 const { v4: uuid } = require('uuid');
 require('dotenv').config();
-
+function must(name) {
+  const v = process.env[name];
+  if (!v) console.error(`[ENV MISSING] ${name}`);
+  return v;
+}
 const app = express();
 app.use(express.json());
 
