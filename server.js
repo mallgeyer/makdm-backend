@@ -1,8 +1,8 @@
 const express = require('express');
-const cors = require('cors');              // <-- add this line
+const cors = require('cors');
 const { createClient } = require('@supabase/supabase-js');
+const { Client } = require('square');   // ✅ Correct import
 require('dotenv').config();
-const { Client: SquareClient, Environment } = require('square');
 
 const must = (name) => {
   const value = process.env[name];
@@ -14,9 +14,7 @@ const must = (name) => {
 
 const supabaseUrl = must('SUPABASE_URL');
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE || process.env.SUPABASE_ANON_KEY;
-if (!supabaseUrl || !supabaseKey) {
-  console.error('Missing Supabase config; server will keep running for log visibility.');
-}
+
 const supabase = (supabaseUrl && supabaseKey)
   ? createClient(supabaseUrl, supabaseKey)
   : null;
@@ -24,38 +22,30 @@ const supabase = (supabaseUrl && supabaseKey)
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// ✅ Enable CORS
+const allow = [process.env.FRONTEND_URL || '*'];
+app.use(cors({
+  origin: (o, cb) => cb(null, !o || allow.includes(o)),
+  credentials: false
+}));
+
 app.use(express.json());
+
+// ✅ Initialize Square client
+const square = new Client({
+  accessToken: process.env.SQUARE_ACCESS_TOKEN,
+  environment: 'sandbox' // change to 'production' when live
+});
 
 app.get('/', (req, res) => {
   res.json({ ok: true });
 });
 
-// ... keep the rest of your routes and logic below
+// ... your routes that use supabase and square
 
 app.listen(PORT, () => {
   console.log(`Server listening on port ${PORT}`);
 });
-
-// CORS allowlist (important for browser)
-const allow = (process.env.ORIGIN_ALLOWLIST || '')
-  .split(',')
-  .map(s => s.trim())
-  .filter(Boolean);
-
-app.use(cors({ origin: (o, cb) => cb(null, !o || allow.includes(o)), credentials: false }));
-
-
-
-// Square client
-const square =
-  process.env.SQUARE_ACCESS_TOKEN
-    ? new SquareClient({
-        environment: process.env.SQUARE_ENV === 'production' ? Environment.Production : Environment.Sandbox,
-        accessToken: process.env.SQUARE_ACCESS_TOKEN,
-      })
-    : null;
-
-
 // PayPal endpoints use REST API
 const PAYPAL_API = process.env.PAYPAL_ENV === 'production' ? 'https://api-m.paypal.com' : 'https://api-m.sandbox.paypal.com';
 const basicAuth = 'Basic ' + Buffer.from(process.env.PAYPAL_CLIENT_ID+':'+process.env.PAYPAL_CLIENT_SECRET).toString('base64');
