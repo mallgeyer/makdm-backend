@@ -1,4 +1,5 @@
 const express = require('express');
+const cors = require('cors');              // <-- add this line
 const { createClient } = require('@supabase/supabase-js');
 require('dotenv').config();
 
@@ -35,8 +36,12 @@ app.listen(PORT, () => {
 });
 
 // CORS allowlist (important for browser)
-const allow = (process.env.ORIGIN_ALLOWLIST||'').split(',').map(s=>s.trim()).filter(Boolean);
-app.use(cors({ origin: (o,cb)=> cb(null, !o || allow.includes(o)), credentials:false }));
+const allow = (process.env.ORIGIN_ALLOWLIST || '')
+  .split(',')
+  .map(s => s.trim())
+  .filter(Boolean);
+
+app.use(cors({ origin: (o, cb) => cb(null, !o || allow.includes(o)), credentials: false }));
 
 
 
