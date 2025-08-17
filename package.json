@@ -7,11 +7,8 @@
   "scripts": {
     "start": "node server.js"
   },
-  "engines": {
-    "node": ">=18"
-  },
   "dependencies": {
-    "square": "36.1.0",
+    "square": "^36.0.0",
     "@supabase/supabase-js": "2.45.4",
     "cors": "2.8.5",
     "dotenv": "16.4.5",
