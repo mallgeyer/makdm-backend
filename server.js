@@ -38,8 +38,7 @@ app.listen(PORT, () => {
 const allow = (process.env.ORIGIN_ALLOWLIST||'').split(',').map(s=>s.trim()).filter(Boolean);
 app.use(cors({ origin: (o,cb)=> cb(null, !o || allow.includes(o)), credentials:false }));
 
-// Supabase (Service Role key is backend-only)
-const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE);
+
 
 // Square client
 const square = new SquareClient({
