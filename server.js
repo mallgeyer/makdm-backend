@@ -2,6 +2,7 @@ const express = require('express');
 const cors = require('cors');              // <-- add this line
 const { createClient } = require('@supabase/supabase-js');
 require('dotenv').config();
+const { Client: SquareClient, Environment } = require('square');
 
 const must = (name) => {
   const value = process.env[name];
@@ -46,10 +47,14 @@ app.use(cors({ origin: (o, cb) => cb(null, !o || allow.includes(o)), credentials
 
 
 // Square client
-const square = new SquareClient({
-  environment: process.env.SQUARE_ENV === 'production' ? Environment.Production : Environment.Sandbox,
-  accessToken: process.env.SQUARE_ACCESS_TOKEN,
-});
+const square =
+  process.env.SQUARE_ACCESS_TOKEN
+    ? new SquareClient({
+        environment: process.env.SQUARE_ENV === 'production' ? Environment.Production : Environment.Sandbox,
+        accessToken: process.env.SQUARE_ACCESS_TOKEN,
+      })
+    : null;
+
 
 // PayPal endpoints use REST API
 const PAYPAL_API = process.env.PAYPAL_ENV === 'production' ? 'https://api-m.paypal.com' : 'https://api-m.sandbox.paypal.com';
