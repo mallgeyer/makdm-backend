@@ -139,17 +139,27 @@ app.post('/pay/paypal/capture', async (req,res)=>{
   res.json(cap);
 });
 
-// ---------- QBO-style CSV export ----------
-app.get('/api/exports/qbo', async (req,res)=>{
+// ---------- CSV export ----------
+app.get('/api/exports/qbo', async (req, res) => {
   const { from, to } = req.query; // YYYY-MM-DD
-  const { data, error } = await supabase.from('invoices').select('id,total_cents,created_at,status').gte('created_at', from).lte('created_at', to);
-  if(error) return res.status(400).json({ error: error.message });
-  const rows = ['Date,Invoice,Amount,Status'];
-  for(const i of (data||[])) rows.push([new Date(i.created_at).toISOString().slice(0,10), i.id, (i.total_cents/100).toFixed(2), i.status].join(','));
-  res.setHeader('Content-Type','text/csv');
-  res.send(rows.join('
-'));
-});
+  const { data, error } = await supabase
+    .from('invoices')
+    .select('id,total_cents,created_at,status')
+    .gte('created_at', from)
+    .lte('created_at', to);
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, ()=> console.log('API running on ' + PORT));
+  if (error) return res.status(400).json({ error: error.message });
+
+  const rows = ['Date,Invoice,Amount,Status'];
+  for (const i of (data || [])) {
+    rows.push([
+      new Date(i.created_at).toISOString().slice(0, 10),
+      i.id,
+      (i.total_cents / 100).toFixed(2),
+      i.status
+    ].join(','));
+  }
+
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.send(rows.join('\n')); // <-- note '\n' (backslash-n), not a real line break
+});
