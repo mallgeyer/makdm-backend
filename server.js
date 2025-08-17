@@ -22,12 +22,18 @@ const supabase = (supabaseUrl && supabaseKey)
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// ✅ Enable CORS
-const allow = [process.env.FRONTEND_URL || '*'];
+// ✅ Enable CORS for multiple origins (www and non-www)
+const rawAllow = process.env.ORIGIN_ALLOWLIST || 'https://makdmrentals.com,https://www.makdmrentals.com';
+const allow = rawAllow.split(',').map(s => s.trim()).filter(Boolean);
+
 app.use(cors({
-  origin: (o, cb) => cb(null, !o || allow.includes(o)),
+  origin: (origin, cb) => {
+    if (!origin) return cb(null, true); // server-to-server or curl
+    cb(null, allow.includes(origin));
+  },
   credentials: false
 }));
+
 
 app.use(express.json());
 
