@@ -1,18 +1,38 @@
 const express = require('express');
-const cors = require('cors');
 const { createClient } = require('@supabase/supabase-js');
-const { Client: SquareClient, Environment } = require('square');
-
-const fetch = require('node-fetch');
-const { v4: uuid } = require('uuid');
 require('dotenv').config();
-function must(name) {
-  const v = process.env[name];
-  if (!v) console.error(`[ENV MISSING] ${name}`);
-  return v;
+
+const must = (name) => {
+  const value = process.env[name];
+  if (!value) {
+    console.error(`Missing required env var: ${name}`);
+  }
+  return value;
+};
+
+const supabaseUrl = must('SUPABASE_URL');
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE || process.env.SUPABASE_ANON_KEY;
+if (!supabaseUrl || !supabaseKey) {
+  console.error('Missing Supabase config; server will keep running for log visibility.');
 }
+const supabase = (supabaseUrl && supabaseKey)
+  ? createClient(supabaseUrl, supabaseKey)
+  : null;
+
 const app = express();
+const PORT = process.env.PORT || 3000;
+
 app.use(express.json());
+
+app.get('/', (req, res) => {
+  res.json({ ok: true });
+});
+
+// ... keep the rest of your routes and logic below
+
+app.listen(PORT, () => {
+  console.log(`Server listening on port ${PORT}`);
+});
 
 // CORS allowlist (important for browser)
 const allow = (process.env.ORIGIN_ALLOWLIST||'').split(',').map(s=>s.trim()).filter(Boolean);
