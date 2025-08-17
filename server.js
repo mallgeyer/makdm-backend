@@ -1,7 +1,8 @@
 const express = require('express');
 const cors = require('cors');
 const { createClient } = require('@supabase/supabase-js');
-const { Client: SquareClient, Environment } = require('@square/square');
+const { Client: SquareClient, Environment } = require('square');
+
 const fetch = require('node-fetch');
 const { v4: uuid } = require('uuid');
 require('dotenv').config();
