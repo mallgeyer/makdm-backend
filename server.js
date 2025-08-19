@@ -138,7 +138,8 @@ app.post('/pay/square', async (req, res) => {
       idempotencyKey: uuid(),
       sourceId,
       locationId: process.env.SQUARE_LOCATION_ID, // optional in sandbox, good to set when you add it
-      amountMoney: { amount: BigInt(amount_cents), currency: 'USD' },
+      amountMoney: { amount: Number(amount_cents), currency: 'USD' },
+
       note: `invoice:${invoice_id}`,
       autocomplete: true
     });
