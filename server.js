@@ -77,10 +77,38 @@ app.get('/api/units', async (req,res)=>{
   res.json(data);
 });
 
-app.post('/api/units', async (req,res)=>{
-  const { number, size, rate_cents, type='standard', status='vacant', property_id } = req.body;
-  const { data, error } = await supabase.from('units').insert([{ number, size, rate_cents, type, status, property_id }]).select('*').single();
-  if(error) return res.status(400).json({ error: error.message });
+app.post('/api/leases', async (req, res) => {
+  if (!supabase) return res.status(500).json({ error: 'Supabase not configured on server' });
+
+  const {
+    unit_id,
+    tenant_id,
+    start_date,
+    rent_cents,
+    deposit_cents = 0,
+    // if the client didn’t send autopay, default to true
+    autopay = true
+  } = req.body;
+
+  const { data, error } = await supabase
+    .from('leases')
+    .insert([{
+      unit_id,
+      tenant_id,
+      start_date,
+      rent_cents,
+      deposit_cents,
+      status: 'active',
+      autopay
+    }])
+    .select('*')
+    .single();
+
+  if (error) return res.status(400).json({ error: error.message });
+
+  // keep the unit status in sync
+  await supabase.from('units').update({ status: 'occupied' }).eq('id', unit_id).throwOnError();
+
   res.json(data);
 });
 
