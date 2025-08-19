@@ -2,9 +2,14 @@ const express = require('express');
 const cors = require('cors');
 const { createClient } = require('@supabase/supabase-js');
 const { Client } = require('square');   // ✅ Correct import
+const { v4: uuid } = require('uuid'); // <-- needed by /pay/square
 require('dotenv').config();
 
-const { v4: uuid } = require('uuid'); // <-- needed by /pay/square
+const square = new Client({
+  accessToken: process.env.SQUARE_ACCESS_TOKEN,
+  environment: 'sandbox' // change to 'production' when you go live
+});
+
 
 const must = (name) => {
   const value = process.env[name];
@@ -13,6 +18,8 @@ const must = (name) => {
   }
   return value;
 };
+
+
 
 const supabaseUrl = must('SUPABASE_URL');
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE || process.env.SUPABASE_ANON_KEY;
@@ -120,11 +127,14 @@ app.patch('/api/units/:id', async (req,res)=>{
 });
 
 // ---------- Tenants ----------
-app.post('/api/tenants', async (req,res)=>{
-  const { data, error } = await supabase.from('tenants').insert([req.body]).select('*').single();
-  if(error) return res.status(400).json({ error: error.message });
+app.patch('/api/tenants/:id', async (req, res) => {
+  if (!supabase) return res.status(500).json({ error: 'Supabase not configured on server' });
+  const { id } = req.params;
+  const { data, error } = await supabase.from('tenants').update(req.body).eq('id', id).select('*').single();
+  if (error) return res.status(400).json({ error: error.message });
   res.json(data);
 });
+
 
 // ---------- Leases ----------
 app.post('/api/leases', async (req,res)=>{
@@ -188,6 +198,101 @@ app.post('/pay/square', async (req, res) => {
   } catch (e) {
     res.status(400).json({ error: e?.errors?.[0]?.detail || e.message });
   }
+});
+
+app.post('/square/customer', async (req, res) => {
+  try {
+    const { name = '', email = '', phone = '' } = req.body;
+    const givenName = name || undefined;
+
+    const created = await square.customersApi.createCustomer({
+      givenName,
+      emailAddress: email || undefined,
+      phoneNumber: phone || undefined
+    });
+
+    res.json({ customer_id: created.result.customer.id });
+  } catch (e) {
+    res.status(400).json({ error: e?.errors?.[0]?.detail || e.message });
+  }
+});
+
+app.post('/square/save-card', async (req, res) => {
+  try {
+    const { customer_id, sourceId } = req.body;
+    if (!customer_id || !sourceId) {
+      return res.status(400).json({ error: 'customer_id and sourceId are required' });
+    }
+
+    const created = await square.cardsApi.createCard({
+      idempotencyKey: uuid(),
+      sourceId, // tokenized by Web Payments SDK
+      card: { customerId: customer_id }
+    });
+
+    const card = created.result.card;
+    res.json({ card_id: card?.id, last4: card?.last4, brand: card?.cardBrand });
+  } catch (e) {
+    res.status(400).json({ error: e?.errors?.[0]?.detail || e.message });
+  }
+});
+
+app.post('/pay/square', async (req, res) => {
+  try {
+    const { sourceId, customerCardId, amount_cents, invoice_id = 'ad-hoc' } = req.body;
+    if (!amount_cents) return res.status(400).json({ error: 'amount_cents required' });
+
+    const paymentsApi = square.paymentsApi;
+    const payload = {
+      idempotencyKey: uuid(),
+      amountMoney: { amount: Number(amount_cents), currency: 'USD' },
+      // If we have a saved card, use it; otherwise fall back to single-use sourceId
+      ...(customerCardId ? { customerCardId } : { sourceId }),
+      locationId: process.env.SQUARE_LOCATION_ID,
+      note: `invoice:${invoice_id}`,
+      autocomplete: true
+    };
+
+    const response = await paymentsApi.createPayment(payload);
+    res.json(response.result);
+  } catch (e) {
+    res.status(400).json({ error: e?.errors?.[0]?.detail || e.message });
+  }
+});
+
+app.post('/api/leases', async (req, res) => {
+  if (!supabase) return res.status(500).json({ error: 'Supabase not configured on server' });
+
+  const {
+    unit_id,
+    tenant_id,
+    start_date,
+    rent_cents,
+    deposit_cents = 0,
+    autopay = true,
+    square_card_id = null  // <-- NEW
+  } = req.body;
+
+  const { data, error } = await supabase
+    .from('leases')
+    .insert([{
+      unit_id,
+      tenant_id,
+      start_date,
+      rent_cents,
+      deposit_cents,
+      status: 'active',
+      autopay,
+      square_card_id      // <-- saved here
+    }])
+    .select('*')
+    .single();
+
+  if (error) return res.status(400).json({ error: error.message });
+
+  await supabase.from('units').update({ status: 'occupied' }).eq('id', unit_id).throwOnError();
+
+  res.json(data);
 });
 
 
