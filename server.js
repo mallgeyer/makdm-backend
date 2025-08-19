@@ -23,6 +23,9 @@ const supabase = (supabaseUrl && supabaseKey)
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+// Safely JSON-encode any BigInt values returned by SDKs
+const safeJson = (obj) =>
+  JSON.parse(JSON.stringify(obj, (_, v) => (typeof v === 'bigint' ? v.toString() : v)));
 
 // ✅ Enable CORS for multiple origins (www and non-www)
 const rawAllow = process.env.ORIGIN_ALLOWLIST || 'https://makdmrentals.com,https://www.makdmrentals.com';
@@ -152,7 +155,8 @@ app.post('/pay/square', async (req, res) => {
       } catch (_) {}
     }
 
-    res.json(response.result);
+    res.json(safeJson(response.result));
+
   } catch (e) {
     res.status(400).json({ error: e?.errors?.[0]?.detail || e.message });
   }
