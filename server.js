@@ -78,54 +78,44 @@ app.get('/config', (req,res)=> {
 });
 
 // ---------- Units ----------
-app.get('/api/units', async (req,res)=>{
-  const { data, error } = await supabase.from('units').select('*').order('number', { ascending:true });
-  if(error) return res.status(400).json({ error: error.message });
-  res.json(data);
+app.get('/api/units', async (req, res) => {
+  if (!supabase) return res.status(500).json({ error: 'Supabase not configured on server' });
+  const { data, error } = await supabase
+    .from('units')
+    .select('*')
+    .order('number', { ascending: true });
+  if (error) return res.status(400).json({ error: error.message });
+  res.json(data || []);
 });
 
-app.post('/api/leases', async (req, res) => {
+app.post('/api/units', async (req, res) => {
   if (!supabase) return res.status(500).json({ error: 'Supabase not configured on server' });
-
-  const {
-    unit_id,
-    tenant_id,
-    start_date,
-    rent_cents,
-    deposit_cents = 0,
-    // if the client didn’t send autopay, default to true
-    autopay = true
-  } = req.body;
-
+  const { number, size, rate_cents, type = 'standard', status = 'vacant', property_id = null, notes = null } = req.body || {};
+  if (!number || !size || !rate_cents) {
+    return res.status(400).json({ error: 'number, size, rate_cents are required' });
+  }
   const { data, error } = await supabase
-    .from('leases')
-    .insert([{
-      unit_id,
-      tenant_id,
-      start_date,
-      rent_cents,
-      deposit_cents,
-      status: 'active',
-      autopay
-    }])
+    .from('units')
+    .insert([{ number, size, rate_cents, type, status, property_id, notes }])
     .select('*')
     .single();
-
   if (error) return res.status(400).json({ error: error.message });
-
-  // keep the unit status in sync
-  await supabase.from('units').update({ status: 'occupied' }).eq('id', unit_id).throwOnError();
-
   res.json(data);
 });
 
-app.patch('/api/units/:id', async (req,res)=>{
-  const { id } = req.params; const patch = req.body;
-  const { data, error } = await supabase.from('units').update(patch).eq('id', id).select('*').single();
-  if(error) return res.status(400).json({ error: error.message });
+app.patch('/api/units/:id', async (req, res) => {
+  if (!supabase) return res.status(500).json({ error: 'Supabase not configured on server' });
+  const { id } = req.params;
+  const patch = req.body || {};
+  const { data, error } = await supabase
+    .from('units')
+    .update(patch)
+    .eq('id', id)
+    .select('*')
+    .single();
+  if (error) return res.status(400).json({ error: error.message });
   res.json(data);
 });
-
 // ---------- Tenants ----------
 app.patch('/api/tenants/:id', async (req, res) => {
   if (!supabase) return res.status(500).json({ error: 'Supabase not configured on server' });
