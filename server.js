@@ -137,13 +137,41 @@ app.patch('/api/tenants/:id', async (req, res) => {
 
 
 // ---------- Leases ----------
-app.post('/api/leases', async (req,res)=>{
-  const { unit_id, tenant_id, start_date, rent_cents, deposit_cents=0 } = req.body;
-  const { data, error } = await supabase.from('leases').insert([{ unit_id, tenant_id, start_date, rent_cents, deposit_cents, status:'active' }]).select('*').single();
-  if(error) return res.status(400).json({ error: error.message });
-  await supabase.from('units').update({ status:'occupied' }).eq('id', unit_id);
+app.post('/api/leases', async (req, res) => {
+  if (!supabase) return res.status(500).json({ error: 'Supabase not configured on server' });
+
+  const {
+    unit_id,
+    tenant_id,
+    start_date,
+    rent_cents,
+    deposit_cents = 0,
+    autopay = true,
+    square_card_id = null  // <-- NEW
+  } = req.body;
+
+  const { data, error } = await supabase
+    .from('leases')
+    .insert([{
+      unit_id,
+      tenant_id,
+      start_date,
+      rent_cents,
+      deposit_cents,
+      status: 'active',
+      autopay,
+      square_card_id      // <-- saved here
+    }])
+    .select('*')
+    .single();
+
+  if (error) return res.status(400).json({ error: error.message });
+
+  await supabase.from('units').update({ status: 'occupied' }).eq('id', unit_id).throwOnError();
+
   res.json(data);
 });
+
 
 // ---------- Invoices (simple monthly) ----------
 app.post('/api/invoices/run', async (req,res)=>{
@@ -260,40 +288,6 @@ app.post('/pay/square', async (req, res) => {
   }
 });
 
-app.post('/api/leases', async (req, res) => {
-  if (!supabase) return res.status(500).json({ error: 'Supabase not configured on server' });
-
-  const {
-    unit_id,
-    tenant_id,
-    start_date,
-    rent_cents,
-    deposit_cents = 0,
-    autopay = true,
-    square_card_id = null  // <-- NEW
-  } = req.body;
-
-  const { data, error } = await supabase
-    .from('leases')
-    .insert([{
-      unit_id,
-      tenant_id,
-      start_date,
-      rent_cents,
-      deposit_cents,
-      status: 'active',
-      autopay,
-      square_card_id      // <-- saved here
-    }])
-    .select('*')
-    .single();
-
-  if (error) return res.status(400).json({ error: error.message });
-
-  await supabase.from('units').update({ status: 'occupied' }).eq('id', unit_id).throwOnError();
-
-  res.json(data);
-});
 
 
 // ---------- PayPal (creates order & captures) ----------
