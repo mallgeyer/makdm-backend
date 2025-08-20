@@ -198,9 +198,10 @@ app.post('/square/save-card', async (req, res) => {
 app.post('/pay/square', async (req, res) => {
   if (!square) return res.status(503).json({ error: 'Square not configured' });
   try {
-    const { sourceId, customerCardId, amount_cents, invoice_id = 'ad-hoc' } = req.body || {};
+    const { sourceId, customerCardId, customerId, amount_cents, invoice_id = 'ad-hoc' } = req.body || {};
     if (!amount_cents) return res.status(400).json({ error: 'amount_cents required' });
 
+    // Build base payload
     const payload = {
       idempotencyKey: uuid(),
       amountMoney: { amount: Number(amount_cents), currency: 'USD' },
@@ -208,7 +209,16 @@ app.post('/pay/square', async (req, res) => {
       note: `invoice:${invoice_id}`,
       autocomplete: true
     };
-    if (customerCardId) payload.customerCardId = customerCardId; else payload.sourceId = sourceId;
+
+    // If we were given a saved card, map it to sourceId and pass customerId
+    if (customerCardId) {
+      payload.sourceId = customerCardId;  // <— saved card id acts as sourceId
+      if (customerId) payload.customerId = customerId;
+    } else if (sourceId) {
+      payload.sourceId = sourceId;        // <— one-time token from Web Payments SDK
+    } else {
+      return res.status(400).json({ error: 'sourceId or customerCardId is required' });
+    }
 
     const out = await square.paymentsApi.createPayment(payload);
     res.json(out.result);
