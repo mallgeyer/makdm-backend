@@ -192,6 +192,21 @@ app.patch('/api/leases/:id', async (req, res) => {
   res.json(data);
 });
 
+// Preview proration/full amount for a unit and start_date
+app.get('/api/leases/preview', async (req, res) => {
+  if (!supabase) return res.status(500).json({ error: 'Supabase not configured on server' });
+  const { unit_id, start_date } = req.query;
+  if (!unit_id || !start_date) return res.status(400).json({ error: 'unit_id and start_date are required' });
+
+  const { data: unit, error } = await supabase.from('units').select('rate_cents').eq('id', unit_id).single();
+  if (error || !unit) return res.status(404).json({ error: 'Unit not found' });
+
+  const amount_cents = prorateCents(start_date, unit.rate_cents);
+  const next_due_date = nextFirst(start_date);
+
+  res.json({ amount_cents, next_due_date, monthly_cents: unit.rate_cents, billing_anchor_day: 1 });
+});
+
 // ---------- Square helper routes ----------
 app.post('/square/customer', async (req, res) => {
   if (!square) return res.status(503).json({ error: 'Square not configured' });
