@@ -105,19 +105,15 @@ app.get('/api/units', async (req, res) => {
   res.json(data || []);
 });
 
-app.post('/api/units', async (req, res) => {
+// List leases (for quick admin/testing)
+app.get('/api/leases', async (req, res) => {
   if (!supabase) return res.status(500).json({ error: 'Supabase not configured on server' });
-  const { number, size, rate_cents, type = 'standard', status = 'vacant', property_id = null, notes = null } = req.body || {};
-  if (!number || !size || !rate_cents) {
-    return res.status(400).json({ error: 'number, size, rate_cents are required' });
-  }
   const { data, error } = await supabase
-    .from('units')
-    .insert([{ number, size, rate_cents, type, status, property_id, notes }])
+    .from('leases')
     .select('*')
-    .single();
+    .order('created_at', { ascending: false });
   if (error) return res.status(400).json({ error: error.message });
-  res.json(data);
+  res.json(data || []);
 });
 
 app.patch('/api/units/:id', async (req, res) => {
