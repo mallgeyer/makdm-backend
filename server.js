@@ -61,6 +61,11 @@ app.use(require('cors')(corsOptions));
 // Explicitly respond to preflight for any path
 app.options('*', require('cors')(corsOptions));
 
+app.use((req, res, next) => {
+  console.log('REQ', req.method, req.path, 'Origin:', req.headers.origin || '(no origin)');
+  next();
+});
+
 // ✅ Initialize Square client
 const square = new Client({
   accessToken: process.env.SQUARE_ACCESS_TOKEN,
