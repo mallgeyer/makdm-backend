@@ -34,20 +34,32 @@ const PORT = process.env.PORT || 3000;
 const safeJson = (obj) =>
   JSON.parse(JSON.stringify(obj, (_, v) => (typeof v === 'bigint' ? v.toString() : v)));
 
-// ✅ Enable CORS for multiple origins (www and non-www)
-const rawAllow = process.env.ORIGIN_ALLOWLIST || 'https://makdmrentals.com,https://www.makdmrentals.com';
+app.use(express.json());
+
+// Allow both www and non-www; add more origins by comma in ORIGIN_ALLOWLIST
+const rawAllow = process.env.ORIGIN_ALLOWLIST
+  || 'https://makdmrentals.com,https://www.makdmrentals.com';
 const allow = rawAllow.split(',').map(s => s.trim()).filter(Boolean);
 
-app.use(cors({
+const corsOptions = {
   origin: (origin, cb) => {
-    if (!origin) return cb(null, true); // server-to-server or curl
-    cb(null, allow.includes(origin));
+    // allow server-to-server/no-origin (curl, render health checks)
+    if (!origin) return cb(null, true);
+    // allow exact listed origins
+    if (allow.includes(origin)) return cb(null, true);
+    // optional: also allow same host with trailing slashes or subtle variants
+    // if (origin.replace(/\/+$/,'') === 'https://makdmrentals.com') return cb(null, true);
+    cb(null, false);
   },
-  credentials: false
-}));
+  methods: ['GET','POST','PATCH','OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: false,
+  maxAge: 600
+};
 
-
-app.use(express.json());
+app.use(require('cors')(corsOptions));
+// Explicitly respond to preflight for any path
+app.options('*', require('cors')(corsOptions));
 
 // ✅ Initialize Square client
 const square = new Client({
