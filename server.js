@@ -6,6 +6,31 @@ const { createClient } = require('@supabase/supabase-js');
 const { Client: SquareClient } = require('square');
 require('dotenv').config();
 
+// Compute proration in cents based on start date to end of month
+function prorateCents(startDateISO, monthlyCents) {
+  const start = new Date(startDateISO + 'T00:00:00');
+  // localize to America/Menominee if needed; for simplicity we use UTC-midnight
+  const y = start.getUTCFullYear(), m = start.getUTCMonth();
+  const daysInMonth = new Date(Date.UTC(y, m + 1, 0)).getUTCDate();
+  const startDay = start.getUTCDate(); // 1..31
+  if (startDay <= 1) return Number(monthlyCents); // full month if starting on 1st
+  const remainingDays = (daysInMonth - startDay + 1); // include start day
+  const prorated = Math.round((Number(monthlyCents) * remainingDays) / daysInMonth);
+  return prorated;
+}
+
+// Compute the next billing date (the next 1st)
+function nextFirst(startDateISO) {
+  const d = new Date(startDateISO + 'T00:00:00Z');
+  const y = d.getUTCFullYear(), m = d.getUTCMonth(), day = d.getUTCDate();
+  if (day === 1) {
+    // charged full today; next is the 1st of next month
+    return new Date(Date.UTC(y, m + 1, 1)).toISOString().slice(0,10);
+  }
+  // Started mid-month; we charged pro-rate now; next is the 1st of next month
+  return new Date(Date.UTC(y, m + 1, 1)).toISOString().slice(0,10);
+}
+
 // --- Helpers ---
 const must = (name) => {
   const v = process.env[name];
