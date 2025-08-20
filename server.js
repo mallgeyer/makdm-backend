@@ -165,20 +165,27 @@ app.get('/api/leases', async (req, res) => {
 });
 
 app.post('/api/leases', async (req, res) => {
-  if (!supabase) return res.status(500).json({ error: 'Supabase not configured' });
+  if (!supabase) return res.status(500).json({ error: 'Supabase not configured on server' });
   const {
     unit_id, tenant_id, start_date, rent_cents,
-    deposit_cents = 0, autopay = true, square_card_id = null
+    deposit_cents = 0, autopay = true, square_card_id = null,
+    first_charge_cents = null, // <-- from portal after successful charge
+    next_due_date = nextFirst(start_date) // safe default
   } = req.body || {};
 
   const { data, error } = await supabase
     .from('leases')
-    .insert([{ unit_id, tenant_id, start_date, rent_cents, deposit_cents, status: 'active', autopay, square_card_id }])
+    .insert([{
+      unit_id, tenant_id, start_date, rent_cents, deposit_cents,
+      status: 'active', autopay, square_card_id,
+      billing_anchor_day: 1,
+      next_due_date,
+      first_charge_cents
+    }])
     .select('*').single();
 
   if (error) return res.status(400).json({ error: error.message });
 
-  // keep the unit status in sync
   await supabase.from('units').update({ status: 'occupied' }).eq('id', unit_id).throwOnError();
 
   res.json(data);
