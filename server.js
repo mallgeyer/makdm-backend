@@ -33,6 +33,11 @@ const PORT = process.env.PORT || 10000;
 // JSON first
 app.use(express.json());
 
+// Safely JSON-encode any BigInt values (prevents "Do not know how to serialize a BigInt")
+const safeJson = (obj) =>
+  JSON.parse(JSON.stringify(obj, (_, v) => (typeof v === 'bigint' ? v.toString() : v)));
+
+
 // CORS allowlist (both www and non-www by default)
 const rawAllow = process.env.ORIGIN_ALLOWLIST || 'https://makdmrentals.com,https://www.makdmrentals.com';
 const allow = rawAllow.split(',').map(s => s.trim()).filter(Boolean);
@@ -199,31 +204,33 @@ app.post('/pay/square', async (req, res) => {
   if (!square) return res.status(503).json({ error: 'Square not configured' });
   try {
     const { sourceId, customerCardId, customerId, amount_cents, invoice_id = 'ad-hoc' } = req.body || {};
-    if (!amount_cents) return res.status(400).json({ error: 'amount_cents required' });
+    if (typeof amount_cents !== 'number') return res.status(400).json({ error: 'amount_cents must be a number (cents)' });
 
-    // Build base payload
     const payload = {
       idempotencyKey: uuid(),
-      amountMoney: { amount: Number(amount_cents), currency: 'USD' },
+      amountMoney: { amount: Number(amount_cents), currency: 'USD' }, // <-- Number, not BigInt
       locationId: process.env.SQUARE_LOCATION_ID || undefined,
       note: `invoice:${invoice_id}`,
       autocomplete: true
     };
 
-    // If we were given a saved card, map it to sourceId and pass customerId
+    // Map saved card id to sourceId; include customerId if you have it
     if (customerCardId) {
-      payload.sourceId = customerCardId;  // <— saved card id acts as sourceId
+      payload.sourceId = customerCardId;
       if (customerId) payload.customerId = customerId;
     } else if (sourceId) {
-      payload.sourceId = sourceId;        // <— one-time token from Web Payments SDK
+      payload.sourceId = sourceId;
     } else {
       return res.status(400).json({ error: 'sourceId or customerCardId is required' });
     }
 
     const out = await square.paymentsApi.createPayment(payload);
-    res.json(out.result);
+
+    // Always serialize safely (in case SDK returns a bigint somewhere)
+    res.json(safeJson(out.result));
   } catch (e) {
-    res.status(400).json({ error: e?.errors?.[0]?.detail || e.message });
+    // Also serialize errors safely
+    res.status(400).json(safeJson({ error: e?.errors?.[0]?.detail || e.message }));
   }
 });
 
