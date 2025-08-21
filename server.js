@@ -291,9 +291,19 @@ function addMonthsISO(iso, months=1) {
   return nd.toISOString().slice(0,10);
 }
 
-app.post('/api/autopay/run', async (req, res) => {
-  if (!supabase || !square) return res.status(503).json({ error: 'Backend not fully configured' });
-  const today = new Date().toISOString().slice(0,10);
+// Helper: return the 1st of the next month for a given ISO date
+function nextMonthFirst(iso) {
+  const d = new Date(iso + 'T00:00:00Z');
+  const y = d.getUTCFullYear(), m = d.getUTCMonth();
+  return new Date(Date.UTC(y, m + 1, 1)).toISOString().slice(0,10);
+}
+
+// ... inside the for-loop after a successful payment:
+const next = nextMonthFirst(L.next_due_date);
+await supabase.from('leases')
+  .update({ next_due_date: next })
+  .eq('id', L.id)
+  .throwOnError();
 
   // 1) pull all active, due-today, autopay leases with saved card
   const { data: leases, error } = await supabase
