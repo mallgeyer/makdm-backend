@@ -299,6 +299,68 @@ app.post('/pay/square', async (req, res) => {
 
 // Utility: add months while keeping day where possible
 
+// --- Payments API ---
+// List payments (recent first). Optional ?limit=100
+app.get('/api/payments', async (req, res) => {
+  if (!supabase) return res.status(500).json({ error: 'Supabase not configured' });
+  const limit = Math.max(1, Math.min(500, Number(req.query.limit) || 100));
+  const { data, error } = await supabase
+    .from('payments')
+    .select('id, lease_id, amount_cents, paid_at, status, square_payment_id, note')
+    .order('paid_at', { ascending: false })
+    .limit(limit);
+  if (error) return res.status(400).json({ error: error.message });
+  res.json(data || []);
+});
+
+// QuickBooks-friendly CSV export of last N payments
+app.get('/api/export/payments.csv', async (req, res) => {
+  if (!supabase) return res.status(500).json({ error: 'Supabase not configured' });
+  const limit = Math.max(1, Math.min(2000, Number(req.query.limit) || 1000));
+  const { data, error } = await supabase
+    .from('payments')
+    .select('paid_at, amount_cents, status, square_payment_id, lease_id, note')
+    .order('paid_at', { ascending: false })
+    .limit(limit);
+  if (error) return res.status(400).json({ error: error.message });
+
+  // CSV headers: Date,Customer,Memo,Amount,Reference
+  // (We’ll put lease_id as Customer for now; later we can join tenant name)
+  const rows = [
+    ['Date','Customer','Memo','Amount','Reference'],
+    ... (data || []).map(p => [
+      new Date(p.paid_at).toISOString().slice(0,10),
+      p.lease_id,
+      p.note || p.status,
+      (Number(p.amount_cents) / 100).toFixed(2),
+      p.square_payment_id || ''
+    ])
+  ];
+  const csv = rows.map(r => r.map(v => `"${String(v).replace(/"/g,'""')}"`).join(',')).join('\r\n');
+
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', 'attachment; filename="payments-export.csv"');
+  res.send(csv);
+});
+
+// Optional: simple refund route (Square capture)
+// NOTE: In Square sandbox this creates a refund object; in prod, set permissions carefully.
+app.post('/api/payments/refund', async (req, res) => {
+  try {
+    if (!square) return res.status(503).json({ error: 'Square not configured' });
+    const { payment_id, amount_cents } = req.body || {};
+    if (!payment_id || !amount_cents) return res.status(400).json({ error: 'payment_id and amount_cents required' });
+    const out = await square.refundsApi.refundPayment({
+      idempotencyKey: uuid(),
+      paymentId: payment_id,
+      amountMoney: { amount: Number(amount_cents), currency: 'USD' }
+    });
+    res.json(out.result);
+  } catch (e) {
+    res.status(400).json({ error: e?.errors?.[0]?.detail || e.message });
+  }
+});
+
 
 // ---------- AUTOPAY (shared) ----------
 function nextMonthFirst(iso) {
