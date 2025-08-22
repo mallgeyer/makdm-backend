@@ -63,21 +63,33 @@ const safeJson = (obj) =>
   JSON.parse(JSON.stringify(obj, (_, v) => (typeof v === 'bigint' ? v.toString() : v)));
 
 
-// CORS allowlist (both www and non-www by default)
-const rawAllow = process.env.ORIGIN_ALLOWLIST || 'https://makdmrentals.com,https://www.makdmrentals.com';
-const allow = rawAllow.split(',').map(s => s.trim()).filter(Boolean);
+app.use(express.json());
+
+const cors = require('cors');
+
+// allow both www and non-www + any subdomain of makdmrentals.com
+const allow = (process.env.ORIGIN_ALLOWLIST || 'https://makdmrentals.com,https://www.makdmrentals.com')
+  .split(',').map(s => s.trim()).filter(Boolean);
+
 const corsOptions = {
   origin: (origin, cb) => {
-    if (!origin) return cb(null, true);                 // curl/health checks
-    return cb(null, allow.includes(origin));
+    if (!origin) return cb(null, true);            // curl/health checks
+    try {
+      const u = new URL(origin);
+      if (allow.includes(origin)) return cb(null, true);
+      if (u.hostname.endsWith('makdmrentals.com')) return cb(null, true);
+    } catch (_) {}
+    cb(null, false);
   },
   methods: ['GET','POST','PATCH','OPTIONS'],
   allowedHeaders: ['Content-Type','Authorization'],
   credentials: false,
-  maxAge: 600
+  maxAge: 600,
 };
+
 app.use(cors(corsOptions));
 app.options('*', cors(corsOptions));
+
 
 // (Optional) tiny request log to Render logs
 app.use((req,res,next)=>{ console.log(req.method, req.path, 'Origin:', req.headers.origin||'-'); next(); });
@@ -98,6 +110,76 @@ app.get('/config', (req, res) => {
     locationId: process.env.SQUARE_LOCATION_ID || null
   });
 });
+
+// reuse the same logic via GET to simplify testing from a browser
+app.get('/api/autopay/run-test', async (req, res) => {
+  // internally call the POST handler logic
+  req.query = req.query || {};
+  // default date if provided; otherwise today
+  // We’ll keep the logic in one place:
+  const today = (req.query.date || new Date().toISOString().slice(0,10));
+  // === copy the inside of your /api/autopay/run here OR
+  // better: refactor into a function and call it from both.
+  // For speed, call the POST route handler function if you extracted it.
+  // Simple inline version:
+  if (!supabase || !square) return res.status(503).json({ error: 'Backend not fully configured' });
+
+  const { data: leases, error: fetchErr } = await supabase
+    .from('leases')
+    .select('id, tenant_id, unit_id, rent_cents, square_card_id, next_due_date, autopay')
+    .eq('autopay', true)
+    .eq('next_due_date', today)
+    .not('square_card_id', 'is', null);
+  if (fetchErr) return res.status(400).json({ error: fetchErr.message });
+
+  const results = [];
+  for (const L of (leases || [])) {
+    try {
+      const { data: tenant } = await supabase
+        .from('tenants')
+        .select('square_customer_id')
+        .eq('id', L.tenant_id)
+        .single();
+
+      const payload = {
+        idempotencyKey: uuid(),
+        amountMoney: { amount: Number(L.rent_cents), currency: 'USD' },
+        sourceId: L.square_card_id,
+        customerId: tenant?.square_customer_id || undefined,
+        locationId: process.env.SQUARE_LOCATION_ID || undefined,
+        note: `autopay:${L.id} ${today}`,
+        autocomplete: true
+      };
+      const pay = await square.paymentsApi.createPayment(payload);
+
+      await supabase.from('payments').insert([{
+        lease_id: L.id,
+        amount_cents: L.rent_cents,
+        square_payment_id: pay.result.payment?.id || null,
+        status: 'paid',
+        note: `autopay ${today}`
+      }]);
+
+      const next = (function nextMonthFirst(iso){
+        const d = new Date(iso + 'T00:00:00Z');
+        const y = d.getUTCFullYear(), m = d.getUTCMonth();
+        return new Date(Date.UTC(y, m + 1, 1)).toISOString().slice(0,10);
+      })(L.next_due_date || today);
+
+      await supabase.from('leases').update({ next_due_date: next }).eq('id', L.id);
+
+      results.push({ lease_id: L.id, ok: true, payment_id: pay.result.payment?.id, next_due_date: next });
+    } catch (e) {
+      const msg = e?.errors?.[0]?.detail || e.message || String(e);
+      results.push({ lease_id: L.id, ok: false, error: msg });
+      await supabase.from('payments').insert([{
+        lease_id: L.id, amount_cents: L.rent_cents, status: 'failed', note: msg
+      }]).catch(()=>{});
+    }
+  }
+  res.json({ date: today, count: results.length, results });
+});
+
 
 // ---------- Units ----------
 app.get('/api/units', async (req, res) => {
