@@ -63,9 +63,9 @@ const safeJson = (obj) =>
   JSON.parse(JSON.stringify(obj, (_, v) => (typeof v === 'bigint' ? v.toString() : v)));
 
 
-app.use(express.json());
 
-const cors = require('cors');
+
+
 
 // allow both www and non-www + any subdomain of makdmrentals.com
 const allow = (process.env.ORIGIN_ALLOWLIST || 'https://makdmrentals.com,https://www.makdmrentals.com')
@@ -112,73 +112,7 @@ app.get('/config', (req, res) => {
 });
 
 // reuse the same logic via GET to simplify testing from a browser
-app.get('/api/autopay/run-test', async (req, res) => {
-  // internally call the POST handler logic
-  req.query = req.query || {};
-  // default date if provided; otherwise today
-  // We’ll keep the logic in one place:
-  const today = (req.query.date || new Date().toISOString().slice(0,10));
-  // === copy the inside of your /api/autopay/run here OR
-  // better: refactor into a function and call it from both.
-  // For speed, call the POST route handler function if you extracted it.
-  // Simple inline version:
-  if (!supabase || !square) return res.status(503).json({ error: 'Backend not fully configured' });
 
-  const { data: leases, error: fetchErr } = await supabase
-    .from('leases')
-    .select('id, tenant_id, unit_id, rent_cents, square_card_id, next_due_date, autopay')
-    .eq('autopay', true)
-    .eq('next_due_date', today)
-    .not('square_card_id', 'is', null);
-  if (fetchErr) return res.status(400).json({ error: fetchErr.message });
-
-  const results = [];
-  for (const L of (leases || [])) {
-    try {
-      const { data: tenant } = await supabase
-        .from('tenants')
-        .select('square_customer_id')
-        .eq('id', L.tenant_id)
-        .single();
-
-      const payload = {
-        idempotencyKey: uuid(),
-        amountMoney: { amount: Number(L.rent_cents), currency: 'USD' },
-        sourceId: L.square_card_id,
-        customerId: tenant?.square_customer_id || undefined,
-        locationId: process.env.SQUARE_LOCATION_ID || undefined,
-        note: `autopay:${L.id} ${today}`,
-        autocomplete: true
-      };
-      const pay = await square.paymentsApi.createPayment(payload);
-
-      await supabase.from('payments').insert([{
-        lease_id: L.id,
-        amount_cents: L.rent_cents,
-        square_payment_id: pay.result.payment?.id || null,
-        status: 'paid',
-        note: `autopay ${today}`
-      }]);
-
-      const next = (function nextMonthFirst(iso){
-        const d = new Date(iso + 'T00:00:00Z');
-        const y = d.getUTCFullYear(), m = d.getUTCMonth();
-        return new Date(Date.UTC(y, m + 1, 1)).toISOString().slice(0,10);
-      })(L.next_due_date || today);
-
-      await supabase.from('leases').update({ next_due_date: next }).eq('id', L.id);
-
-      results.push({ lease_id: L.id, ok: true, payment_id: pay.result.payment?.id, next_due_date: next });
-    } catch (e) {
-      const msg = e?.errors?.[0]?.detail || e.message || String(e);
-      results.push({ lease_id: L.id, ok: false, error: msg });
-      await supabase.from('payments').insert([{
-        lease_id: L.id, amount_cents: L.rent_cents, status: 'failed', note: msg
-      }]).catch(()=>{});
-    }
-  }
-  res.json({ date: today, count: results.length, results });
-});
 
 
 // ---------- Units ----------
@@ -364,97 +298,7 @@ app.post('/pay/square', async (req, res) => {
 });
 
 // Utility: add months while keeping day where possible
-function addMonthsISO(iso, months=1) {
-  const d = new Date(iso + 'T00:00:00Z');
-  const y = d.getUTCFullYear(), m = d.getUTCMonth(), day = d.getUTCDate();
-  const nd = new Date(Date.UTC(y, m + months, 1));
-  const last = new Date(Date.UTC(nd.getUTCFullYear(), nd.getUTCMonth()+1, 0)).getUTCDate();
-  nd.setUTCDate(Math.min(day, last));
-  return nd.toISOString().slice(0,10);
-}
 
-// Helper: always advance to the 1st of next month
-function nextMonthFirst(iso) {
-  const d = new Date(iso + 'T00:00:00Z');
-  const y = d.getUTCFullYear(), m = d.getUTCMonth();
-  return new Date(Date.UTC(y, m + 1, 1)).toISOString().slice(0,10);
-}
-
-app.post('/api/autopay/run', async (req, res) => {
-  if (!supabase || !square) {
-    return res.status(503).json({ error: 'Backend not fully configured' });
-  }
-
-  const today = (req.query.date || new Date().toISOString().slice(0,10));
-  const results = [];
-
-  // 1) Fetch due leases
-  const { data: leases, error: fetchErr } = await supabase
-    .from('leases')
-    .select('id, tenant_id, unit_id, rent_cents, square_card_id, next_due_date, autopay')
-    .eq('autopay', true)
-    .eq('next_due_date', today)
-    .not('square_card_id', 'is', null);
-
-  if (fetchErr) return res.status(400).json({ error: fetchErr.message });
-
-  for (const L of (leases || [])) {
-    try {
-      // 2) Get customerId from tenant (optional)
-      const { data: tenant } = await supabase
-        .from('tenants')
-        .select('square_customer_id')
-        .eq('id', L.tenant_id)
-        .single();
-
-      // 3) Charge saved card (card_id acts as sourceId)
-      const payload = {
-        idempotencyKey: uuid(),
-        amountMoney: { amount: Number(L.rent_cents), currency: 'USD' },
-        sourceId: L.square_card_id,
-        customerId: tenant?.square_customer_id || undefined,
-        locationId: process.env.SQUARE_LOCATION_ID || undefined,
-        note: `autopay:${L.id} ${today}`,
-        autocomplete: true
-      };
-      const pay = await square.paymentsApi.createPayment(payload);
-
-      // 4) Record payment
-      const { error: payInsErr } = await supabase.from('payments').insert([{
-        lease_id: L.id,
-        amount_cents: L.rent_cents,
-        square_payment_id: pay.result.payment?.id || null,
-        status: 'paid',
-        note: `autopay ${today}`
-      }]);
-      if (payInsErr) console.error('payments insert failed', payInsErr);
-
-      // 5) Advance next_due_date to next month’s 1st
-      const next = nextMonthFirst(L.next_due_date || today);
-      const { error: leaseUpdErr } = await supabase
-        .from('leases')
-        .update({ next_due_date: next })
-        .eq('id', L.id);
-      if (leaseUpdErr) console.error('lease update failed', leaseUpdErr);
-
-      results.push({ lease_id: L.id, ok: true, payment_id: pay.result.payment?.id, next_due_date: next });
-    } catch (e) {
-      const msg = e?.errors?.[0]?.detail || e.message || String(e);
-      results.push({ lease_id: L.id, ok: false, error: msg });
-
-      // Best-effort failure record (no .catch chaining)
-      const { error: failInsErr } = await supabase.from('payments').insert([{
-        lease_id: L.id,
-        amount_cents: L.rent_cents,
-        status: 'failed',
-        note: msg
-      }]);
-      if (failInsErr) console.error('payments insert (failed) error', failInsErr);
-    }
-  }
-
-  res.json({ date: today, count: results.length, results });
-});
 
 // ---------- AUTOPAY (shared) ----------
 function nextMonthFirst(iso) {
