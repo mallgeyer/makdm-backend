@@ -361,6 +361,15 @@ app.post('/api/payments/refund', async (req, res) => {
   }
 });
 
+app.get('/admin/test-email', async (req, res) => {
+  try {
+    const to = req.query.to || 'mallgeyer@gmail.com';
+    await sendEmail(to, 'Test email – MAKDM Rentals', '<p>This is a test.</p>');
+    res.json({ ok: true, to });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message || String(e) });
+  }
+});
 
 // ---------- AUTOPAY (shared) ----------
 function nextMonthFirst(iso) {
